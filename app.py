@@ -21,73 +21,125 @@ brazil_shapefile = geemap.shp_to_ee('data/Brazil.shp')
 
 col1, col2, col3 = st.columns(3)
 
-with col1:
-    st.subheader("Burned Area")
-    Map = geemap.Map()
+with st.container():
+    import streamlit as st
 
-    # Define the dataset and filter by date
-    dataset = ee.ImageCollection('MODIS/061/MCD64A1').filter(ee.Filter.date('2017-01-01', '2018-05-01'))
-    burnedArea = dataset.select('BurnDate')
+    # List of Brazilian states
+    states = ['Acre', 'Alagoas', 'Amapa', 'Amazonas', 'Bahia', 'Ceara', 'Espirito Santo', 'Goias', 'Maranhao', 
+            'Mato Grosso', 'Minas Gerais', 'Para', 'Paraiba', 'Parana', 'Pernambuco', 'Piaui', 'Rio de Janeiro',
+            'Rio Grande do Norte', 'Rio Grande do Sul', 'Rondonia', 'Roraima', 'Santa Catarina', 'Sao Paulo',
+            'Sergipe', 'Tocantins']
 
-    # A FeatureCollection defining Brazil boundary.
-    fc = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017').filter(
-        'country_na == "Brazil"'
+    option = st.selectbox('Select a state', states)
+
+    st.write('You selected:', option)
+
+    # Apply custom CSS for styling
+    st.markdown(
+        """
+        <style>
+        .st-eb {
+            background-color: #4CAF50;
+            width: 45%;
+            padding: 10px;
+            margin: 10px;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
     )
 
-    # Clip the burned Area by the Brazil boundary FeatureCollection.
-    # Iterate over the ImageCollection and clip each image to the FeatureCollection.
-    ba_clip = burnedArea.map(lambda img: img.clipToCollection(fc))
+    with col2:
+        st.subheader("Land Cover")
+        Map = geemap.Map()
+
+        landcover = ee.Image('MODIS/006/MCD12Q1/2004_01_01').select('LC_Type1')
+
+        igbpLandCoverVis = {
+            'min': 1.0,
+            'max': 17.0,
+            'palette': [
+                '05450a',
+                '086a10',
+                '54a708',
+                '78d203',
+                '009900',
+                'c6b044',
+                'dcd159',
+                'dade48',
+                'fbff13',
+                'b6ff05',
+                '27ff87',
+                'c24f44',
+                'a5a5a5',
+                'ff6d4c',
+                '69fff8',
+                'f9ffa4',
+                '1c0dff',
+            ],
+        }
+
+        brazil_lc = landcover.clip(brazil_shapefile)
+        Map.setCenter(-55, -10, 4)
+        Map.addLayer(brazil_lc, igbpLandCoverVis, 'MODIS Land Cover')
+        Map.addLayerControl()
+        Map.to_streamlit()
+
+    with col3:
+        from simpledbf import Dbf5
+
+        dbf_file = 'data/Brazil.dbf'
+
+        # Open the DBF file
+        dbf = Dbf5(dbf_file)
+
+        # Get the fields (columns) information
+        fields = dbf.fields
+
+        # Read the DBF file into a Pandas DataFrame
+        df = dbf.to_dataframe()
+
+        st.write(df['POP_EST'])
+        st.write(df['POP_YEAR'])
+
+with st.container():
+    col3, col4 = st.columns(2)
+    with col3:
+        import plotly.express as px
+        import pandas as pd
+
+        df = pd.read_csv('Brazilian-fire-dataset.csv')
+        selected_state = st.selectbox('Select State', df['State'].unique())
+        start_date = st.date_input('Start Date')
+        end_date = st.date_input('End Date')
+
+        df['Date Reported'] = pd.to_datetime(df['Date Reported'])
+        start_date = start_date.strftime('%Y-%m-%d')
+        end_date = end_date.strftime('%Y-%m-%d')
+
+        # Filter the DataFrame based on selected state and date range
+        filtered_df = df[(df['State'] == selected_state) & (df['Date Reported'] >= start_date) & (df['Date Reported'] <= end_date)]
+
+        # Create a bar graph for number of fires by month
+        fig = px.bar(filtered_df, x='Month', y='Number of Fires', title=f'Number of Fires by Month in {selected_state} ({start_date} to {end_date})')
 
 
-    # Visualization parameters
-    burnedAreaVis = {
-        'min': 30.0,
-        'max': 341.0,
-        'palette': ['4e0400', '951003', 'c61503', 'ff1901']
-    }
+        # Display the bar graph
+        st.plotly_chart(fig)
+    
+    with col4:
+        # Filter the DataFrame based on the selected state
+        filtered_df = df[df['State'] == selected_state]
 
-    # Create a map
-    Map = geemap.Map(center=[-10, -55], zoom=4)
+        # Calculate the average number of fires by year
+        avg_fires_by_year = filtered_df.groupby('Year')['Number of Fires'].mean().reset_index()
 
-    # Add burned area layer to the map
-    Map.addLayer(ba_clip, burnedAreaVis, 'Burned Area')
-    Map.addLayer(brazil_shapefile, name='Brazil',opacity=0.5)
-    Map.addLayerControl()
+        # Create a bar graph for average number of fires by year
+        fig = px.line(avg_fires_by_year, x='Year', y='Number of Fires', title=f'Average Number of Fires by Year in {selected_state}', line_shape='spline')
 
-    Map.to_streamlit()
+        # Display the bar graph
+        st.plotly_chart(fig)
 
-with col2:
-    st.subheader("Land Cover")
-    Map = geemap.Map()
-
-    landcover = ee.Image('MODIS/006/MCD12Q1/2004_01_01').select('LC_Type1')
-
-    igbpLandCoverVis = {
-        'min': 1.0,
-        'max': 17.0,
-        'palette': [
-            '05450a',
-            '086a10',
-            '54a708',
-            '78d203',
-            '009900',
-            'c6b044',
-            'dcd159',
-            'dade48',
-            'fbff13',
-            'b6ff05',
-            '27ff87',
-            'c24f44',
-            'a5a5a5',
-            'ff6d4c',
-            '69fff8',
-            'f9ffa4',
-            '1c0dff',
-        ],
-    }
-
-    brazil_lc = landcover.clip(brazil_shapefile)
-    Map.setCenter(-55, -10, 4)
-    Map.addLayer(brazil_lc, igbpLandCoverVis, 'MODIS Land Cover')
-    Map.addLayerControl()
-    Map.to_streamlit()
